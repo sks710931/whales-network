@@ -415,16 +415,7 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         uint256 amount
     ) public virtual override returns (bool) {
         _transfer(sender, recipient, amount, false);
-
-        uint256 currentAllowance = _allowances[sender][_msgSender()];
-        require(
-            currentAllowance >= amount,
-            "ERC20: transfer amount exceeds allowance"
-        );
-        unchecked {
-            _approve(sender, _msgSender(), currentAllowance - amount);
-        }
-
+        _approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, "ERC20: transfer amount exceeds allowance"));
         return true;
     }
 
@@ -437,7 +428,7 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         _approve(
             _msgSender(),
             spender,
-            _allowances[_msgSender()][spender] + addedValue
+            _allowances[_msgSender()][spender].add(addedValue)
         );
         return true;
     }
@@ -448,15 +439,7 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         virtual
         returns (bool)
     {
-        uint256 currentAllowance = _allowances[_msgSender()][spender];
-        require(
-            currentAllowance >= subtractedValue,
-            "ERC20: decreased allowance below zero"
-        );
-        unchecked {
-            _approve(_msgSender(), spender, currentAllowance - subtractedValue);
-        }
-
+        _approve(_msgSender(), spender, _allowances[_msgSender()][spender].sub(subtractedValue, "ERC20: decreased allowance below zero"));
         return true;
     }
 
@@ -481,38 +464,46 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         _tokenTransfer(sender,recipient,amount, isPurchase);
     }
 
+    //deliver method here
+    //reflection from token here
+
 
     function removeAllFee() private {
-        if(_taxFee == 0) return;
+        if(_taxFee == 0 && _royaltyFee == 0 && _burnFee == 0) return;
         _previousTaxFee = _taxFee;
+        _previousRoyaltyFee = _royaltyFee;
+        _previousBurnFee = _burnFee;
+
         _taxFee = 0;
+        _royaltyFee = 0;
+        _burnFee = 0;
     }
     
     function restoreAllFee() private {
         _taxFee = _previousTaxFee;
+        _burnFee= _previousBurnFee;
+        _royaltyFee = _previousRoyaltyFee;
     }
+
+
     function _tokenTransfer(address sender, address recipient, uint256 amount, bool isPurchase) private {
         if(!isPurchase)
             removeAllFee();
-        
-        
         _transferFinal(sender, recipient, amount, isPurchase);
-        
-        
         if(!isPurchase)
             restoreAllFee();
     }
 
-    function _getValues(uint256 tAmount, bool isPurchase) private view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+    function _getValues(uint256 tAmount, bool isPurchase) private view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
         if(!isPurchase){
             (uint256 tTransferAmount, uint256 tFee, uint256 tRoyalty) = _getTValues(tAmount);
             (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, _getRate());
-            return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee, tRoyalty);
+            return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee, tRoyalty, 0);
         }
         else{
-            (uint256 tTransferAmount, uint256 tFee, uint256 tRoyalty) = _getPurchaseTValues(tAmount);
-            (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getPurchaseRValues(tAmount, tFee,tRoyalty, _getRate());
-            return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee, tRoyalty);
+            (uint256 tTransferAmount, uint256 tFee, uint256 tRoyalty, uint256 tBurn) = _getPurchaseTValues(tAmount);
+            uint256[3] memory rValues = _getPurchaseRValues(tAmount, tFee,tRoyalty, _getRate(), tBurn);
+            return (rValues[0], rValues[1], rValues[2], tTransferAmount, tFee, tRoyalty, tBurn);
         }
         
     }
@@ -524,6 +515,12 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
 
     function calculateRoyaltyFee(uint256 _amount) private view returns (uint256) {
         return _amount.mul(_royaltyFee).div(
+            10**2
+        );
+    }
+
+    function calculateBurnAmount(uint256 _amount) private view returns (uint256) {
+        return _amount.mul(_burnFee).div(
             10**2
         );
     }
@@ -541,35 +538,40 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         return (rAmount, rTransferAmount, rFee);
     }
 
-    function _getPurchaseTValues(uint256 tAmount) private view returns (uint256, uint256, uint256) {
+    function _getPurchaseTValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256) {
         uint256 tFee = calculateTaxFee(tAmount);
         uint256 tRoyalty = calculateRoyaltyFee(tAmount);
-        uint256 tTransferAmount = tAmount.sub(tFee).sub(tRoyalty);
-        return (tTransferAmount, tFee, tRoyalty);
+        uint256 tBurn = calculateBurnAmount(tAmount);
+        uint256 tTransferAmount = tAmount.sub(tFee).sub(tRoyalty).sub(tBurn);
+        return (tTransferAmount, tFee, tRoyalty, tBurn);
     }
-    function _getPurchaseRValues(uint256 tAmount, uint256 tFee,uint256 tRoyalty, uint256 currentRate) private pure returns (uint256, uint256, uint256) {
+    function _getPurchaseRValues(uint256 tAmount, uint256 tFee,uint256 tRoyalty, uint256 currentRate, uint256 tBurn) private pure returns (uint256[3] memory) {
         uint256 rAmount = tAmount.mul(currentRate);
         uint256 rFee = tFee.mul(currentRate);
         uint256 rRoyalty = tRoyalty.mul(currentRate);
-        uint256 rTransferAmount = rAmount.sub(rFee).sub(rRoyalty);
-        return (rAmount, rTransferAmount, rFee);
+        uint256 rBurn = tBurn.mul(currentRate);
+        uint256 rTransferAmount = rAmount.sub(rFee).sub(rRoyalty).sub(rBurn);
+        return [rAmount, rTransferAmount, rFee];
     }
 
     function _transferFinal(address sender, address recipient, uint256 tAmount, bool isPurchase) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tRoyaltyFee) = _getValues(tAmount, isPurchase);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tRoyaltyFee, uint256 tBurn) = _getValues(tAmount, isPurchase);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         if(isPurchase)
-            _takeRoyaltyFee(tRoyaltyFee);
+            _takeRoyaltyFee(tRoyaltyFee, tBurn);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
 
-    function _takeRoyaltyFee(uint256 tRoyalty) private{
+    function _takeRoyaltyFee(uint256 tRoyalty, uint256 tBurn) private{
         uint256 currentRate =  _getRate();
         uint256 rRoyalty = tRoyalty.mul(currentRate);
+        uint256 rBurn = tBurn.mul(currentRate);
         _rOwned[_royaltyCollector] = _rOwned[_royaltyCollector].add(rRoyalty);
-        emit Transfer(address(this), _royaltyCollector, tRoyalty);
+        emit Transfer(_msgSender(), _royaltyCollector, tRoyalty);
+        _rOwned[address(0)] = _rOwned[address(0)].add(rBurn);
+        emit Transfer(_msgSender(), address(0), tRoyalty);
     }
 
     function _reflectFee(uint256 rFee, uint256 tFee) private {
