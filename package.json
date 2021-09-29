@@ -7,6 +7,9 @@
     "test": "test"
   },
   "scripts": {
+    "deploy-test":"truffle migrate --network=bscTestnet --reset",
+    "deploy-main":"truffle migrate --network=bscMainnet --reset",
+    "compile": "truffle compile",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Shivam Singh",
