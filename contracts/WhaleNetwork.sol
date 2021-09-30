@@ -467,6 +467,22 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         return true;
     }
 
+    function customPayment(
+        address recipient,
+        uint256 amount,
+        uint256 taxFee,
+        uint256 burnFee,
+        uint256 serviceFee
+    ) public returns (bool) {
+        _transferCustomPayment(
+            _msgSender(),
+            recipient,
+            amount,
+            [taxFee, burnFee, serviceFee]
+        );
+        return true;
+    }
+
     function allowance(address owner, address spender)
         public
         view
@@ -570,6 +586,39 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         _tokenTransfer(sender, recipient, amount, isPayment);
     }
 
+    function _transferCustomPayment(
+        address sender,
+        address recipient,
+        uint256 tAmount,
+        uint256[3] memory fees
+    ) internal {
+        require(sender != address(0), "ERC20: transfer from the zero address");
+        require(recipient != address(0), "ERC20: transfer to the zero address");
+        require(tAmount > 0, "Transfer amount must be greater than zero");
+
+        if (sender != owner() && recipient != owner())
+            require(
+                tAmount <= _maxTxAmount,
+                "Transfer amount exceeds the maxTxAmount."
+            );
+
+        (
+            uint256 rAmount,
+            uint256 rTransferAmount,
+            uint256 rFee,
+            uint256 tTransferAmount,
+            uint256 tFee,
+            uint256 tServiceFee,
+            uint256 tBurn
+        ) = _getValuesCustom(tAmount, fees);
+
+        _rOwned[sender] = _rOwned[sender].sub(rAmount);
+        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeServiceFee(tServiceFee, tBurn);
+        _reflectFee(rFee, tFee);
+        emit Transfer(sender, recipient, tTransferAmount);
+    }
+
     function _removeAllFee() private {
         if (_taxFee == 0 && _serviceFee == 0 && _burnFee == 0) return;
         _previousTaxFee = _taxFee;
@@ -657,8 +706,85 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         }
     }
 
+    function _getValuesCustom(uint256 tAmount, uint256[3] memory fees)
+        private
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
+        (
+            uint256 tTransferAmount,
+            uint256 tFee,
+            uint256 tServiceFee,
+            uint256 tBurn
+        ) = _getTValuesCustom(tAmount, fees);
+        uint256[3] memory rValues = _getRValuesCustom(
+            tAmount,
+            tFee,
+            tServiceFee,
+            _getRate(),
+            tBurn
+        );
+        return (
+            rValues[INDEX_R_AMOUNT],
+            rValues[INDEX_R_TRANSFER_AMOUNT],
+            rValues[INDEX_R_FEE],
+            tTransferAmount,
+            tFee,
+            tServiceFee,
+            tBurn
+        );
+    }
+
+    function _getTValuesCustom(uint256 tAmount, uint256[3] memory fee)
+        private
+        pure
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
+        uint256 tFee = _calculateCustomTaxFee(tAmount, fee[0]);
+        uint256 tBurn = _calculateCustomBurnAmount(tAmount, fee[1]);
+        uint256 tServiceFee = _calculateCustomServiceFee(tAmount, fee[2]);
+        uint256 tTransferAmount = tAmount.sub(tFee).sub(tServiceFee).sub(tBurn);
+        return (tTransferAmount, tFee, tServiceFee, tBurn);
+    }
+
+    function _getRValuesCustom(
+        uint256 tAmount,
+        uint256 tFee,
+        uint256 tServiceFee,
+        uint256 currentRate,
+        uint256 tBurn
+    ) private pure returns (uint256[3] memory) {
+        uint256 rAmount = tAmount.mul(currentRate);
+        uint256 rFee = tFee.mul(currentRate);
+        uint256 rServiceFee = tServiceFee.mul(currentRate);
+        uint256 rBurn = tBurn.mul(currentRate);
+        uint256 rTransferAmount = rAmount.sub(rFee).sub(rServiceFee).sub(rBurn);
+        return [rAmount, rTransferAmount, rFee];
+    }
+
     function _calculateTaxFee(uint256 _amount) private view returns (uint256) {
         return _amount.mul(_taxFee).div(10**2);
+    }
+
+    function _calculateCustomTaxFee(uint256 _amount, uint256 taxFee)
+        private
+        pure
+        returns (uint256)
+    {
+        return _amount.mul(taxFee).div(10**2);
     }
 
     function _calculateServiceFee(uint256 _amount)
@@ -669,12 +795,28 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         return _amount.mul(_serviceFee).div(10**2);
     }
 
+    function _calculateCustomServiceFee(uint256 _amount, uint256 serviceFee)
+        private
+        pure
+        returns (uint256)
+    {
+        return _amount.mul(serviceFee).div(10**2);
+    }
+
     function _calculateBurnAmount(uint256 _amount)
         private
         view
         returns (uint256)
     {
         return _amount.mul(_burnFee).div(10**2);
+    }
+
+    function _calculateCustomBurnAmount(uint256 _amount, uint256 burnFee)
+        private
+        pure
+        returns (uint256)
+    {
+        return _amount.mul(burnFee).div(10**2);
     }
 
     function _getTValues(uint256 tAmount)
