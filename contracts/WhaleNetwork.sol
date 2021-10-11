@@ -271,6 +271,16 @@ interface IERC20Metadata is IERC20 {
     function decimals() external view returns (uint8);
 }
 
+interface IWhaleNetworkPartner {
+    function taxFee() external view returns (uint256);
+
+    function burnFee() external view returns (uint256);
+
+    function serviceFee() external view returns (uint256);
+
+    function partnerShare() external view returns (uint256);
+}
+
 abstract contract Context {
     function _msgSender() internal view virtual returns (address) {
         return msg.sender;
@@ -352,6 +362,7 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
     mapping(address => uint256) private _rOwned;
     mapping(address => uint256) private _tOwned;
     mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(uint256 => address) private _partnershipContracts;
 
     address private _serviceFeeCollector;
 
@@ -383,6 +394,19 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         _decimals = 18;
         _rOwned[_msgSender()] = _rTotal;
         emit Transfer(address(0), _msgSender(), _tTotal);
+    }
+
+    function addPartnership(uint256 partnerId, address contractAddress)
+        external
+        onlyOwner
+        returns (uint256, address)
+    {
+        require(
+            _partnershipContracts[partnerId] == address(0),
+            "WhaleNetwork: This id is already assigned with a contract address."
+        );
+        _partnershipContracts[partnerId] = contractAddress;
+        return (partnerId, contractAddress);
     }
 
     function decimals() public view virtual override returns (uint8) {
@@ -478,7 +502,30 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
             _msgSender(),
             recipient,
             amount,
-            [taxFee, burnFee, serviceFee]
+            [taxFee, burnFee, serviceFee],
+            _serviceFeeCollector
+        );
+        return true;
+    }
+
+    function partnerPayment(
+        address recipient,
+        uint256 amount,
+        uint256 partnerId
+    ) public returns (bool) {
+        require(
+            _partnershipContracts[partnerId] != address(0),
+            "WhaleNetwork: There is no partner contract for the provided Id"
+        );
+        IWhaleNetworkPartner partner = IWhaleNetworkPartner(
+            _partnershipContracts[partnerId]
+        );
+        _transferCustomPayment(
+            _msgSender(),
+            recipient,
+            amount,
+            [partner.taxFee(), partner.burnFee(), partner.serviceFee()],
+            _partnershipContracts[partnerId]
         );
         return true;
     }
@@ -590,7 +637,8 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
         address sender,
         address recipient,
         uint256 tAmount,
-        uint256[3] memory fees
+        uint256[3] memory fees,
+        address svcFeeCollector
     ) internal {
         require(sender != address(0), "ERC20: transfer from the zero address");
         require(recipient != address(0), "ERC20: transfer to the zero address");
@@ -614,7 +662,7 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
 
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeServiceFee(tServiceFee, tBurn);
+        _takeServiceFeeCustom(tServiceFee, tBurn, svcFeeCollector);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
@@ -915,6 +963,20 @@ contract WhaleNetwork is Context, IERC20, IERC20Metadata, Ownable {
             rServiceFee
         );
         emit Transfer(_msgSender(), _serviceFeeCollector, tServiceFee);
+        _rOwned[address(0)] = _rOwned[address(0)].add(rBurn);
+        emit Transfer(_msgSender(), address(0), tBurn);
+    }
+
+    function _takeServiceFeeCustom(
+        uint256 tServiceFee,
+        uint256 tBurn,
+        address svcFeeBneficiary
+    ) private {
+        uint256 currentRate = _getRate();
+        uint256 rServiceFee = tServiceFee.mul(currentRate);
+        uint256 rBurn = tBurn.mul(currentRate);
+        _rOwned[svcFeeBneficiary] = _rOwned[svcFeeBneficiary].add(rServiceFee);
+        emit Transfer(_msgSender(), svcFeeBneficiary, tServiceFee);
         _rOwned[address(0)] = _rOwned[address(0)].add(rBurn);
         emit Transfer(_msgSender(), address(0), tBurn);
     }
