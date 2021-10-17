@@ -1,5 +1,5 @@
 var HDWalletProvider = require("@truffle/hdwallet-provider");
-const MNEMONIC = "YOUR PRIVATE KEY";
+const MNEMONIC = "0901e24a256d0bf4dc93f8c5ccb021870d2f25a5191a6764621bcfcc38dd715b";
 
 module.exports = {
   networks: {
@@ -59,6 +59,7 @@ module.exports = {
       timeoutBlocks: 200,
       skipDryRun: true,
     },
+    
   },
 
   // Set default mocha options here, use special reporters etc.
@@ -72,10 +73,10 @@ module.exports = {
       version: "0.8.0",    // Fetch exact version from solc-bin (default: truffle's version)
       // docker: true,        // Use "0.5.1" you've installed locally with docker (default: false)
       // settings: {          // See the solidity docs for advice about optimization and evmVersion
-      //  optimizer: {
-      //    enabled: false,
-      //    runs: 200
-      //  },
+       optimizer: {
+         enabled: false,
+         runs: 200
+       },
       //  evmVersion: "byzantium"
       // }
     }

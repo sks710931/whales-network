@@ -239,6 +239,7 @@ contract WhaleNetworkPartner is Context, Ownable {
     function tokenAddress() public view returns(address){
         return address(_token);
     }
+    
     function init(uint256 tax, uint256 burn, uint256 service, uint256 partner, address partnerAddr) onlyOwner() external returns(bool){
         require(!_isInitialized, "WhaleNetworkPartner: Contract is already initialized.");
         _taxFee = tax;
