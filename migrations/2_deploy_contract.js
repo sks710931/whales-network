@@ -8,6 +8,6 @@ module.exports = async function (deployer) {
   const whaleNetworkContract = await WhaleNetwork.deployed();
   await deployer.deploy(Governance, whaleNetworkContract.address, 1000, 10000);
   await deployer.deploy(WhaleNetworkPartner, whaleNetworkContract.address);
-  const serviceFeeCollector = "0xd279768E6F3040C04a147BC4a8D667fF067F948B";
+  const serviceFeeCollector = "Address of service fee collector";
   await whaleNetworkContract.setServiceFeeCollector(serviceFeeCollector);
 };
