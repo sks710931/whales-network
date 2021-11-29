@@ -456,10 +456,8 @@ contract WhaleNetworkGovernance is Context, Ownable {
             "WhaleNetworkGovernance: Invalid proposal Id"
         );
         VoteStatus memory voteStatus = getResult(proposalId);
-        uint256 circulatingTokenSupply = _token.totalSupply().sub(
-            _token.balanceOf(address(0))
-        );
-        if (voteStatus.support > circulatingTokenSupply.div(2)) {
+        
+        if (voteStatus.support > voteStatus.support.add(voteStatus.against)) {
             return true;
         } else {
             return false;
