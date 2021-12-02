@@ -375,7 +375,7 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
         require(amountToWtdw > 0, "Vest: cannot withdraw zero amount.");
         _burn(_msgSender(),amountToWtdw);
         _token.transfer(_msgSender(), amountToWtdw);
-        _amountWithdrawn = amountToWtdw;
+        _amountWithdrawn = _amountWithdrawn + amountToWtdw;
     }
 
     function getTimestamp() public view returns(uint256){
